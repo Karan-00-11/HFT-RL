@@ -51,15 +51,17 @@ class TradingEnv(gym.Env):
         # Frame Setup
         self.no_of_features = 7 # [1] Bid price, [2] Bid volume, [3] Ask price, [4] Ask volume, [5] Mid price, [6] Spread, [7] Micro price
         self.dom_shape =  (self.sequence_length, self.no_of_features) # Depth of market (DOM) features
+        print(self.dom_shape.shape)
         
         self.single_frame_size = np.prod(self.dom_shape)  # Total size of a single frame
 
         # Define action space: Discrete actions for simplicity [1]
         # 0: Hold, 1: Buy (using all available cash), 2: Sell (all held shares)
         self.action_space = spaces.Discrete(3)
-
+    
         ## Observation Space - (sequence_length, features)
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape = (self.dom_shape), dtype=np.float32)
+        print(self.observation_space.shape)
 
 
         # self.frame_buffer = deque(maxlen=self.sequence_length)  # Buffer to hold the last 'sequence_length' frames
@@ -85,7 +87,7 @@ class TradingEnv(gym.Env):
             self.current_price = self.get_mid_price(self.current_bids, self.current_asks)
         else:
             # If no market data, use the last known price or a default
-            self.current_price = getattr(self, 'current_price')
+            self.current_price = getattr(self, 'current_price', 0.0)
             
     def get_mid_price(self, bids, asks):
         best_bid = bids[0][0] if len(bids) > 0 else 0.0
