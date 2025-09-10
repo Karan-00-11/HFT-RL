@@ -44,24 +44,21 @@ class TradingEnv(gym.Env):
         self.max_position = 100 # Maximum number of shares can be held
 
         #Order Parameters
-        self.size_pct_of_level = 0.1 # Planning to use Kelly Criterion for order size
+        self.size_pct_of_level = 0.3 # Planning to use Kelly Criterion for order size
         self.current_bids = 0
         self.current_asks = 0
 
         # Frame Setup
         self.no_of_features = 7 # [1] Bid price, [2] Bid volume, [3] Ask price, [4] Ask volume, [5] Mid price, [6] Spread, [7] Micro price
-        self.dom_shape =  (self.sequence_length, self.no_of_features) # Depth of market (DOM) features
-        print(self.dom_shape.shape)
-        
+        self.dom_shape =  (self.sequence_length, self.no_of_features) # Depth of market (DOM) features        
         self.single_frame_size = np.prod(self.dom_shape)  # Total size of a single frame
 
         # Define action space: Discrete actions for simplicity [1]
         # 0: Hold, 1: Buy (using all available cash), 2: Sell (all held shares)
         self.action_space = spaces.Discrete(3)
-    
+
         ## Observation Space - (sequence_length, features)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape = (self.dom_shape), dtype=np.float32)
-        print(self.observation_space.shape)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape = (self.sequence_length * self.no_of_features,), dtype=np.float32)
 
 
         # self.frame_buffer = deque(maxlen=self.sequence_length)  # Buffer to hold the last 'sequence_length' frames
@@ -87,7 +84,7 @@ class TradingEnv(gym.Env):
             self.current_price = self.get_mid_price(self.current_bids, self.current_asks)
         else:
             # If no market data, use the last known price or a default
-            self.current_price = getattr(self, 'current_price', 0.0)
+            self.current_price = getattr(self, 'current_price')
             
     def get_mid_price(self, bids, asks):
         best_bid = bids[0][0] if len(bids) > 0 else 0.0
@@ -110,54 +107,56 @@ class TradingEnv(gym.Env):
         Constructs the observation array for the current step.
         This is the 'state' the agent observes.[2]
         """
-        stacked_frames = self.frame
+        ### I just dont know what Im doing here
+        # stacked_frames = self.frame
 
 
-        if stacked_frames.shape[0] < self.sequence_length:
-            last_frame = stacked_frames[-1] if len(stacked_frames) > 0 else np.zeros(self.single_frame_size)
-            padding_needed = self.sequence_length - stacked_frames.shape[0]
-            padding = np.tile(last_frame[np.newaxis, :], (padding_needed, 1))
-            stacked_frames = np.vstack((stacked_frames, padding))
+        # if stacked_frames.shape[0] < self.sequence_length:
+        #     last_frame = stacked_frames[-1] if len(stacked_frames) > 0 else np.zeros(self.single_frame_size)
+        #     padding_needed = self.sequence_length - stacked_frames.shape[0]
+        #     padding = np.tile(last_frame[np.newaxis, :], (padding_needed, 1))
+        #     stacked_frames = np.vstack((stacked_frames, padding))
         
-        return stacked_frames
+        # return stacked_frames
+        return self.features().flatten().astype(np.float32)
     
     def features(self):
-        bids = self.df.loc[self.current_step : self.current_step + self.sequence_length, 
+        bids = self.df.loc[self.current_step : self.current_step + self.sequence_length + 1, 
                         ['Bid price', 'Bid volume']].to_numpy()
-        asks = self.df.loc[self.current_step : self.current_step + self.sequence_length, 
+        asks = self.df.loc[self.current_step : self.current_step + self.sequence_length + 1, 
                         ['Ask price', 'Ask volume']].to_numpy()
-        remaining_steps = len(self.df) - self.current_step 
+        # remaining_steps = (len(self.df) - self.sequence_length) - self.current_step 
         
-        if remaining_steps >= self.sequence_length:
-            # We have enough data
-            bids = self.df.loc[self.current_step:self.current_step + self.sequence_length - 1, 
-                            ['Bid price', 'Bid volume']].to_numpy()
-            asks = self.df.loc[self.current_step:self.current_step + self.sequence_length - 1, 
-                            ['Ask price', 'Ask volume']].to_numpy()
-        else:
-            # Not enough data, need padding
-            available_rows = self.df.loc[self.current_step:, 
-                                        ['Bid price', 'Bid volume', 'Ask price', 'Ask volume']]
+        # if remaining_steps >= self.sequence_length:
+        #     # We have enough data
+        #     bids = self.df.loc[self.current_step:self.current_step + self.sequence_length - 1, 
+        #                     ['Bid price', 'Bid volume']].to_numpy()
+        #     asks = self.df.loc[self.current_step:self.current_step + self.sequence_length - 1, 
+        #                     ['Ask price', 'Ask volume']].to_numpy()
+        # else:
+        #     # Not enough data, need padding
+        #     available_rows = self.df.loc[self.current_step:, 
+        #                                 ['Bid price', 'Bid volume', 'Ask price', 'Ask volume']]
             
-            # Get last row for padding
-            last_row = available_rows.iloc[-1]
-            last_bids = np.array([[last_row['Bid price'], last_row['Bid volume']]])
-            last_asks = np.array([[last_row['Ask price'], last_row['Ask volume']]])
+        #     # Get last row for padding
+        #     last_row = available_rows.iloc[-1]
+        #     last_bids = np.array([[last_row['Bid price'], last_row['Bid volume']]])
+        #     last_asks = np.array([[last_row['Ask price'], last_row['Ask volume']]])
             
-            # Create arrays with available data
-            bids = available_rows[['Bid price', 'Bid volume']].to_numpy()
-            asks = available_rows[['Ask price', 'Ask volume']].to_numpy()
+        #     # Create arrays with available data
+        #     bids = available_rows[['Bid price', 'Bid volume']].to_numpy()
+        #     asks = available_rows[['Ask price', 'Ask volume']].to_numpy()
             
-            # Calculate padding needed
-            padding_needed = self.sequence_length - remaining_steps
+        #     # Calculate padding needed
+        #     padding_needed = self.sequence_length - remaining_steps
             
-            # Pad with copies of the last row
-            pad_bids = np.tile(last_bids, (padding_needed, 1))
-            pad_asks = np.tile(last_asks, (padding_needed, 1))
+        #     # Pad with copies of the last row
+        #     pad_bids = np.tile(last_bids, (padding_needed, 1))
+        #     pad_asks = np.tile(last_asks, (padding_needed, 1))
             
-            # Concatenate available data with padding
-            bids = np.vstack((bids, pad_bids))
-            asks = np.vstack((asks, pad_asks))
+        #     # Concatenate available data with padding
+        #     bids = np.vstack((bids, pad_bids))
+        #     asks = np.vstack((asks, pad_asks))
         
         for i in range(self.sequence_length):
             self.frame[i, 0] = bids[i][0]
@@ -173,7 +172,7 @@ class TradingEnv(gym.Env):
             else:
                 self.frame[i, 6] = (bids[i][0] * ask_vol + asks[i][0] * bid_vol) / total_vol
                 
-        return self.frame
+        return self.frame.flatten()
 
     def _initial_frame(self):
         """
@@ -181,7 +180,7 @@ class TradingEnv(gym.Env):
         This is called at the start of each episode to set the initial state.[2]
         """
 
-        return self.features()
+        return self.features().astype(np.float32)
   
     def _get_current_frame(self):
         """
@@ -201,7 +200,8 @@ class TradingEnv(gym.Env):
         
         ask_price = self.current_asks[0][0]  # Get the best ask price
         ask_volume = self.current_asks[0][1]  # Get the best ask volume
-
+        
+        ### Need to set Kelly's Criterion dynamically, but for now we set it as 0.1
         order_size = self.size_pct_of_level * ask_volume  # Calculate order size based on the percentage of the best ask volume
         if self.position + order_size > self.max_position:
             return -0.05
@@ -244,18 +244,41 @@ class TradingEnv(gym.Env):
         Returns:
             float: The reward for the action taken.
         """
+        # if action == 0:
+        #     # Hold action, no changes to portfolio
+        #     reward = -1
+        #     return reward
+        # elif action == 1:
+        #     # Buy action
+        #     reward = self._market_buy()
+        #     return reward
+        # elif action == 2:
+        #     # Sell action
+        #     reward = self._market_sell()
+        #     return reward
+    # Store previous net worth to calculate PnL
+        prev_worth = self.net_worth
+        
+        # Execute the action
         if action == 0:
-            # Hold action, no changes to portfolio
-            return 0.0
+            # Smaller penalty for holding
+            action_reward = -0.01
         elif action == 1:
-            # Buy action
-            reward = self._market_buy()
-            return reward
+            action_reward = self._market_buy()
         elif action == 2:
-            # Sell action
-            reward = self._market_sell()
-            return reward
-
+            action_reward = self._market_sell()
+        
+        # Calculate new net worth after action
+        self.net_worth = self.cash_in_hand + (self.position * self.current_price)
+        
+        # Calculate PnL component - the real trading reward
+        pnl_reward = (self.net_worth - prev_worth) / prev_worth if prev_worth > 0 else 0
+        
+        # Scale PnL reward to make it more significant
+        scaled_pnl = pnl_reward * 100
+        
+        # Total reward combines action cost and PnL
+        return scaled_pnl + action_reward
 
     def _get_info(self):
         """
