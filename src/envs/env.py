@@ -57,9 +57,21 @@ class TradingEnv(gym.Env):
         # 0: Hold, 1: Buy (using all available cash), 2: Sell (all held shares)
         self.action_space = spaces.Discrete(3)
 
+        spaces = {
+            'cash_in_hand' : spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+            'position' : spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+            'Bid price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Bid volume' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Ask price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Ask volume' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Mid price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Spread' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Micro price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
+            'Order Imbalance' : spaces.Box(low=-1, high=1, shape=(self.sequence_length,), dtype=np.float32)
+        }
         ## Observation Space - (sequence_length, features)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape = (self.sequence_length * self.no_of_features,), dtype=np.float32)
-
+        # self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape = (self.sequence_length * self.no_of_features + 2,), dtype=np.float32)
+        self.observation_space = gym.spaces.Dict(spaces)
 
         # self.frame_buffer = deque(maxlen=self.sequence_length)  # Buffer to hold the last 'sequence_length' frames
         self.frame = np.zeros(self.dom_shape, dtype=np.float32)  # Initialize a frame with zeros
@@ -86,21 +98,25 @@ class TradingEnv(gym.Env):
             # If no market data, use the last known price or a default
             self.current_price = getattr(self, 'current_price')
             
-    def get_mid_price(self, bids, asks):
+    def _get_mid_price(self, bids, asks):
         best_bid = bids[0][0] if len(bids) > 0 else 0.0
         best_ask = asks[0][0] if len(asks) > 0 else 0.0
         return (best_bid + best_ask) / 2.0
 
 
-    def get_micro_price(self, bids, asks):
+    def _get_micro_price(self, bids, asks):
         if bids is None or asks is None or len(bids) == 0 or len(asks) == 0:
-            return self.get_mid_price(bids, asks)
+            return self._get_mid_price(bids, asks)
         bid_price, bid_vol = bids[0]
         ask_price, ask_vol = asks[0]
         total_vol = bid_vol + ask_vol
         if total_vol == 0:
             return (bid_price + ask_price) / 2.0
         return (bid_price * ask_vol + ask_price * bid_vol) / total_vol
+    
+    def _order_imbalance(self, bids, asks):
+        oi = ((bids[1] - asks[1])/(bids[1] + asks[1]))
+        return oi
 
     def _get_obs(self):
         """
