@@ -193,23 +193,56 @@ class TradingEnv(gym.Env):
             else:  # already long
                 reward -= 0.001
 
+        # # Action 3: stop-loss (close if losing)
+        # elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
+        #     unrealized_pnl = (self.current_price - self.entry_price) * self.inventory
+        #     # Inside the if unrealized_pnl < 0: block
+        #     if self.position > 0: # Closing a long
+        #         self.cash_in_hand += self.inventory * self.current_bid_price
+        #     else: # Closing a short
+        #         cost_to_close = abs(self.inventory) * self.current_ask_price
+        #         self.cash_in_hand -= cost_to_close
+
+        #     self.inventory = 0 # Reset inventory after updating cash  
+        #     if unrealized_pnl < 0:
+        #         # The reward is the realized loss (including transaction costs for closing)
+        #         transaction_cost = (self.entry_price + (self.current_ask_price if self.position < 0 else self.current_bid_price)) * self.transaction_rate
+        #         reward = unrealized_pnl - transaction_cost
+        #         self.cash_in_hand += self.inventory * self.current_price
+        #         self.position = 0
+        #         closed = True
+
         # Action 3: stop-loss (close if losing)
         elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
-            unrealized_pnl = (self.current_price - self.entry_price) * self.inventory
-            # Inside the if unrealized_pnl < 0: block
-            if self.position > 0: # Closing a long
-                self.cash_in_hand += self.inventory * self.current_bid_price
-            else: # Closing a short
-                cost_to_close = abs(self.inventory) * self.current_ask_price
-                self.cash_in_hand -= cost_to_close
+            
+            # 1. Calculate the true unrealized PnL first
+            unrealized_pnl = 0
+            if self.position > 0:  # If long, value is based on the current bid price
+                unrealized_pnl = (self.current_bid_price - self.entry_price) * self.inventory
+            else:  # If short, value is based on the current ask price
+                unrealized_pnl = (self.entry_price - self.current_ask_price) * abs(self.inventory)
 
-            self.inventory = 0 # Reset inventory after updating cash
+            # 2. Only proceed if the position is actually losing money
             if unrealized_pnl < 0:
-                # The reward is the realized loss (including transaction costs for closing)
-                transaction_cost = (self.entry_price + (self.current_ask_price if self.position < 0 else self.current_bid_price)) * self.transaction_rate
+                
+                # 3. Calculate transaction costs for closing the trade
+                exit_price = self.current_bid_price if self.position > 0 else self.current_ask_price
+                transaction_cost = (self.entry_price + exit_price) * self.transaction_rate
+                
+                # 4. The final reward is the realized loss minus the transaction cost
                 reward = unrealized_pnl - transaction_cost
-                self.cash_in_hand += self.inventory * self.current_price
+                
+                # 5. Update cash based on the closed position
+                if self.position > 0:  # Closing a long
+                    self.cash_in_hand += self.inventory * self.current_bid_price
+                else:  # Closing a short
+                    cost_to_close = abs(self.inventory) * self.current_ask_price
+                    self.cash_in_hand -= cost_to_close
+                
+                # 6. Reset the portfolio state
+                self.inventory = 0
                 self.position = 0
+                self.entry_price = None
                 closed = True
 
         # Action 1 = hold → do nothing
