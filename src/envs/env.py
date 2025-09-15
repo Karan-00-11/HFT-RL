@@ -5,12 +5,17 @@ import pandas as pd
 import time
 import enum
 
-class Action(enum.Enum):
-    GO_SHORT = 0
-    HOLD = 1
-    GO_LONG = 2
-    STOP_LOSS = 3
+# class Action(enum.Enum):
+#     GO_SHORT = 0
+#     HOLD = 1
+#     GO_LONG = 2
+#     STOP_LOSS = 3
 
+# A simpler, more direct action space
+class Action(enum.Enum):
+    SELL = 0
+    HOLD = 1
+    BUY = 2
     def __int__(self):
         return self.value
 
@@ -68,12 +73,12 @@ class TradingEnv(gym.Env):
 
         # Define action space: Discrete actions for simplicity [1]
         # 0: Hold, 1: Buy (using all available cash), 2: Sell (all held shares)
-        self.action_space = spaces.Discrete(4)
+        self.action_space = spaces.Discrete(3)
 
-        spaces = {
-            'cash_in_hand' : spaces.Box(low=0, high=np.inf, shape=(1,), dtype=np.float32),
+        space = {
+            'cash_in_hand' : spaces.Box(low=0, high=np.inf, shape=(1, 1), dtype=np.float32),
             'position': spaces.Box(low=-1, high=1, shape=(1, 1)),
-            'inventory' : spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32),
+            'inventory' : spaces.Box(low=-np.inf, high=np.inf, shape=(1, 1), dtype=np.float32),
             'Bid price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
             'Bid volume' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
             'Ask price' : spaces.Box(low=0, high=np.inf, shape=(self.sequence_length,), dtype=np.float32),
@@ -84,7 +89,7 @@ class TradingEnv(gym.Env):
             'Order Imbalance' : spaces.Box(low=-1, high=1, shape=(self.sequence_length,), dtype=np.float32)
         }
         ## Observation Space - (sequence_length, features)
-        self.observation_space = gym.spaces.Dict(spaces)
+        self.observation_space = gym.spaces.Dict(space)
 
         self.frame = None 
             
@@ -152,102 +157,136 @@ class TradingEnv(gym.Env):
 
         self.current_price = (self.current_bid_price + self.current_ask_price) / 2
 
-    def _execute_action(self, action, quantity=1):
-        reward = 0.0
-        closed = False
+    # def _execute_action(self, action, quantity=0.1):
+    #     reward = 0.0
+    #     closed = False
 
-        # Action 0: open short OR close long
-        if action == Action.GO_SHORT.value:
-            if self.position == 0:  # neutral -> open short
-                self.position = -1
-                self.inventory -= quantity
-                self.cash_in_hand += quantity * self.current_bid_price
-                self.entry_price = self.current_bid_price
-            elif self.position == 1:  # long -> close long
-                reward = (self.current_bid_price - self.entry_price) * self.inventory
-                self.cash_in_hand += self.inventory * self.current_bid_price
-                self.inventory = 0
-                self.position = 0
-                self.entry_price = None
-                closed = True
-            else:  # already short
-                reward -= 0.001  # penalty
+    #     # Action 0: open short OR close long
+    #     if action == Action.GO_SHORT.value:
+    #         if self.position == 0:  # neutral -> open short
+    #             self.position = -1
+    #             self.inventory -= quantity
+    #             self.cash_in_hand += quantity * self.current_bid_price
+    #             self.entry_price = self.current_bid_price
+    #         elif self.position == 1:  # long -> close long
+    #             reward = (self.current_bid_price - self.entry_price) * self.inventory
+    #             self.cash_in_hand += self.inventory * self.current_bid_price
+    #             self.inventory = 0
+    #             self.position = 0
+    #             self.entry_price = None
+    #             closed = True
+    #         else:  # already short
+    #             reward -= 0.001  # penalty
 
-        # Action 2: open long OR close short
-        elif action == Action.GO_LONG.value:
-            if self.position == 0:  # neutral -> open long
-                cost = quantity * self.current_ask_price
-                if self.cash_in_hand >= cost:
-                    self.position = 1
-                    self.inventory += quantity
-                    self.cash_in_hand -= cost
-                    self.entry_price = self.current_ask_price
-            elif self.position == -1:  # short -> close short
-                reward = (self.entry_price - self.current_ask_price) * abs(self.inventory)
-                cost_to_close = abs(self.inventory) * self.current_ask_price
-                self.cash_in_hand -= cost_to_close
-                self.inventory = 0
-                self.position = 0
-                self.entry_price = None
-                closed = True
-            else:  # already long
-                reward -= 0.001
+    #     # Action 2: open long OR close short
+    #     elif action == Action.GO_LONG.value:
+    #         if self.position == 0:  # neutral -> open long
+    #             cost = quantity * self.current_ask_price
+    #             if self.cash_in_hand >= cost:
+    #                 self.position = 1
+    #                 self.inventory += quantity
+    #                 self.cash_in_hand -= cost
+    #                 self.entry_price = self.current_ask_price
+    #         elif self.position == -1:  # short -> close short
+    #             reward = (self.entry_price - self.current_ask_price) * abs(self.inventory)
+    #             cost_to_close = abs(self.inventory) * self.current_ask_price
+    #             self.cash_in_hand -= cost_to_close
+    #             self.inventory = 0
+    #             self.position = 0
+    #             self.entry_price = None
+    #             closed = True
+    #         else:  # already long
+    #             reward -= 0.001
 
-        # # Action 3: stop-loss (close if losing)
-        # elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
-        #     unrealized_pnl = (self.current_price - self.entry_price) * self.inventory
-        #     # Inside the if unrealized_pnl < 0: block
-        #     if self.position > 0: # Closing a long
-        #         self.cash_in_hand += self.inventory * self.current_bid_price
-        #     else: # Closing a short
-        #         cost_to_close = abs(self.inventory) * self.current_ask_price
-        #         self.cash_in_hand -= cost_to_close
+    #     # # Action 3: stop-loss (close if losing)
+    #     # elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
+    #     #     unrealized_pnl = (self.current_price - self.entry_price) * self.inventory
+    #     #     # Inside the if unrealized_pnl < 0: block
+    #     #     if self.position > 0: # Closing a long
+    #     #         self.cash_in_hand += self.inventory * self.current_bid_price
+    #     #     else: # Closing a short
+    #     #         cost_to_close = abs(self.inventory) * self.current_ask_price
+    #     #         self.cash_in_hand -= cost_to_close
 
-        #     self.inventory = 0 # Reset inventory after updating cash  
-        #     if unrealized_pnl < 0:
-        #         # The reward is the realized loss (including transaction costs for closing)
-        #         transaction_cost = (self.entry_price + (self.current_ask_price if self.position < 0 else self.current_bid_price)) * self.transaction_rate
-        #         reward = unrealized_pnl - transaction_cost
-        #         self.cash_in_hand += self.inventory * self.current_price
-        #         self.position = 0
-        #         closed = True
+    #     #     self.inventory = 0 # Reset inventory after updating cash  
+    #     #     if unrealized_pnl < 0:
+    #     #         # The reward is the realized loss (including transaction costs for closing)
+    #     #         transaction_cost = (self.entry_price + (self.current_ask_price if self.position < 0 else self.current_bid_price)) * self.transaction_rate
+    #     #         reward = unrealized_pnl - transaction_cost
+    #     #         self.cash_in_hand += self.inventory * self.current_price
+    #     #         self.position = 0
+    #     #         closed = True
 
-        # Action 3: stop-loss (close if losing)
-        elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
+    #     # Action 3: stop-loss (close if losing)
+    #     elif action == Action.STOP_LOSS.value and self.position != 0 and self.entry_price is not None:
             
-            # 1. Calculate the true unrealized PnL first
-            unrealized_pnl = 0
-            if self.position > 0:  # If long, value is based on the current bid price
-                unrealized_pnl = (self.current_bid_price - self.entry_price) * self.inventory
-            else:  # If short, value is based on the current ask price
-                unrealized_pnl = (self.entry_price - self.current_ask_price) * abs(self.inventory)
+    #         # 1. Calculate the true unrealized PnL first
+    #         unrealized_pnl = 0
+    #         if self.position > 0:  # If long, value is based on the current bid price
+    #             unrealized_pnl = (self.current_bid_price - self.entry_price) * self.inventory
+    #         else:  # If short, value is based on the current ask price
+    #             unrealized_pnl = (self.entry_price - self.current_ask_price) * abs(self.inventory)
 
-            # 2. Only proceed if the position is actually losing money
-            if unrealized_pnl < 0:
+    #         # 2. Only proceed if the position is actually losing money
+    #         if unrealized_pnl < 0:
                 
-                # 3. Calculate transaction costs for closing the trade
-                exit_price = self.current_bid_price if self.position > 0 else self.current_ask_price
-                transaction_cost = (self.entry_price + exit_price) * self.transaction_rate
+    #             # 3. Calculate transaction costs for closing the trade
+    #             exit_price = self.current_bid_price if self.position > 0 else self.current_ask_price
+    #             transaction_cost = (self.entry_price + exit_price) * self.transaction_rate
                 
-                # 4. The final reward is the realized loss minus the transaction cost
-                reward = unrealized_pnl - transaction_cost
+    #             # 4. The final reward is the realized loss minus the transaction cost
+    #             reward = unrealized_pnl - transaction_cost
                 
-                # 5. Update cash based on the closed position
-                if self.position > 0:  # Closing a long
-                    self.cash_in_hand += self.inventory * self.current_bid_price
-                else:  # Closing a short
-                    cost_to_close = abs(self.inventory) * self.current_ask_price
-                    self.cash_in_hand -= cost_to_close
+    #             # 5. Update cash based on the closed position
+    #             if self.position > 0:  # Closing a long
+    #                 self.cash_in_hand += self.inventory * self.current_bid_price
+    #             else:  # Closing a short
+    #                 cost_to_close = abs(self.inventory) * self.current_ask_price
+    #                 self.cash_in_hand -= cost_to_close
                 
-                # 6. Reset the portfolio state
-                self.inventory = 0
-                self.position = 0
-                self.entry_price = None
-                closed = True
+    #             # 6. Reset the portfolio state
+    #             self.inventory = 0
+    #             self.position = 0
+    #             self.entry_price = None
+    #             closed = True
 
-        # Action 1 = hold → do nothing
+    #     # Action 1 = hold → do nothing
 
-        return reward, closed
+    #     return reward, closed
+
+
+
+
+    def _execute_action(self, action):
+    # Define a fixed quantity for each trade
+        trade_quantity = 0.1 
+
+        if action == Action.BUY.value:
+            cost = trade_quantity * self.current_ask_price
+            transaction_fee = cost * self.transaction_rate
+            
+            # Only constraint is if we have enough cash
+            if self.cash_in_hand >= cost + transaction_fee:
+                self.cash_in_hand -= (cost + transaction_fee)
+                self.inventory += trade_quantity
+                
+        elif action == Action.SELL.value:
+            # Note: You might want rules to limit how much the agent can short
+            proceeds = trade_quantity * self.current_bid_price
+            transaction_fee = proceeds * self.transaction_rate
+            
+            self.cash_in_hand += (proceeds - transaction_fee)
+            self.inventory -= trade_quantity
+
+        # Update the abstract 'position' variable as a RESULT of the inventory
+        if self.inventory > 0.0001: # Use a small threshold to handle floating point issues
+            self.position = 1
+        elif self.inventory < -0.0001:
+            self.position = -1
+        else:
+            self.inventory = 0 # Clean up tiny float residuals
+            self.position = 0
+
 
     def _get_info(self):
         """
@@ -273,9 +312,12 @@ class TradingEnv(gym.Env):
         self.position = 0.0
         self.entry_price = None
         self.cash_in_hand = self.initial_cash
-        self.returns = [self.cash_in_hand]  # Track returns over time
+        self.track_cih = [self.cash_in_hand]  # Track returns over time
+        self.track_nw = [self.cash_in_hand]  # Track returns over time
+        self.track_inv = [self.inventory]  # Track returns over time
         self.net_worth = self.initial_cash
         self.current_price = 0.0 
+        action = 1
         observation = self._get_obs()
         info = self._get_info()
         return observation, info
@@ -285,10 +327,10 @@ class TradingEnv(gym.Env):
         self._update_market_state()
 
         # 2. Save previous net worth
-        prev_worth = self.net_worth
+        # prev_worth = self.net_worth
 
         # 3. Execute action (trading logic)
-        action_reward, closed = self._execute_action(action)
+        self._execute_action(action)
 
         # 4. Mark-to-market unrealized PnL
         # unrealized_pnl = (self.current_price - self.entry_price) * self.inventory if (
@@ -297,11 +339,14 @@ class TradingEnv(gym.Env):
 
         # 5. Update net worth
         self.net_worth = self.cash_in_hand + self.inventory * self.current_price
+        self.track_cih.append(self.cash_in_hand)
+        self.track_nw.append(self.net_worth)
+        self.track_inv.append(self.inventory)
 
         # 6. Reward: realized action reward + scaled net worth change
-        pnl_reward = (self.net_worth - prev_worth) / prev_worth if prev_worth > 0 else 0.0
+        pnl_reward = (self.net_worth - self.initial_cash) / self.initial_cash if self.initial_cash > 0 else 0.0
         # reward = (self.net_worth - prev_worth) / prev_worth
-        reward = action_reward + pnl_reward * 100  # scaling factor
+        # reward = action_reward + pnl_reward * 100  # scaling factor
 
         # 7. Advance time
         self.current_step += 1
@@ -318,11 +363,13 @@ class TradingEnv(gym.Env):
             "position_dir": self.position,
             "entry_price": self.entry_price,
             "net_worth": self.net_worth,
-            "closed": closed,
             "action": action,
+            "Tracker_Cash_in_hand": self.track_cih,
+            "Tracker_Net_worth": self.track_nw,
+            "Tracker_Inventory": self.track_inv
         }
 
-        return obs, reward, terminated, truncated, info
+        return obs, pnl_reward, terminated, truncated, info
 
 
     def render(self, mode='human'):
